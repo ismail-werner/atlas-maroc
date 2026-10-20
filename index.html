@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atlas Maroc</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+:root{--ink:#2b1d14;--sand:#f7efe0;--card:#fffaf0;--red:#c1272d;--green:#006233;--gold:#d99a2b;--line:#e6d6b8}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font:15px/1.4 system-ui,sans-serif;color:var(--ink)}
+#map{position:absolute;inset:0;background:#dfe8e4}
+#panel{position:absolute;z-index:1000;top:12px;left:12px;width:340px;max-height:calc(100% - 24px);overflow:auto;
+  background:var(--card);border-radius:16px;box-shadow:0 8px 30px #0003;padding:16px;border-top:6px solid var(--red)}
+h1{margin:0 0 2px;font-size:20px;letter-spacing:.5px}
+h1 span{color:var(--green)}
+.sub{margin:0 0 12px;color:#7a6650;font-size:13px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.chip{border:1.5px solid var(--line);background:#fff;border-radius:99px;padding:5px 12px;cursor:pointer;font-size:13px}
+.chip.on{background:var(--green);border-color:var(--green);color:#fff}
+.stop{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:10px;background:#fff;margin:4px 0;border:1px solid var(--line)}
+.stop b{width:22px;height:22px;border-radius:50%;background:var(--red);color:#fff;display:grid;place-items:center;font-size:12px;flex:none}
+.stop b.end{background:var(--green)}
+.stop span{flex:1}.stop button{border:0;background:none;cursor:pointer;color:#9a8466;font-size:16px}
+input[type=text]{width:100%;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px;font:inherit;background:#fff}
+.row{display:flex;gap:8px;align-items:center;margin:8px 0;font-size:13px;color:#6b5843}
+.row button{margin-left:auto;border:0;background:none;color:var(--red);cursor:pointer;font:inherit}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:12px 0}
+.sum div{background:var(--sand);border-radius:10px;padding:8px;text-align:center}
+.sum b{display:block;font-size:17px}.sum small{color:#7a6650}
+.step{display:flex;gap:8px;padding:5px 0;border-left:3px solid var(--line);margin-left:6px;padding-left:12px;position:relative}
+.step:before{content:"";position:absolute;left:-7px;top:10px;width:11px;height:11px;border-radius:50%;background:#fff;border:3px solid var(--green)}
+.step i{font-style:normal;color:#9a8466;font-size:12px;margin-left:auto}
+.stat{font-size:12px;color:#7a6650;margin-top:8px}
+.hint{padding:10px;background:var(--sand);border-radius:10px;font-size:13px}
+.lbl{background:#fffaf0cc;border:0;box-shadow:none;font-weight:600;font-size:11px;padding:0 4px}
+@media(max-width:640px){#panel{top:auto;bottom:0;left:0;right:0;width:auto;max-height:48%;border-radius:16px 16px 0 0}}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>Atlas <span>Maroc</span></h1>
+  <p class="sub">Tap cities on the map, or type a name. First = start, last = destination, in-between = stops.</p>
+  <div class="chips" id="modes">
+    <div class="chip on" data-m="fast">⚡ Fastest</div>
+    <div class="chip" data-m="short">📏 Shortest</div>
+    <div class="chip" data-m="free">🪙 No toll</div>
+  </div>
+  <div id="stops"></div>
+  <input type="text" id="q" list="cities" placeholder="Add a city…" autocomplete="off">
+  <datalist id="cities"></datalist>
+  <div class="row">
+    <label><input type="checkbox" id="watch" checked> Watch the search</label>
+    <label><input type="checkbox" id="astar" checked> Turbo (A*)</label>
+    <button id="clear">Clear</button>
+  </div>
+  <div id="out"><div class="hint">Pick two cities to get an itinerary. Roads are drawn with 🟢 autoroutes (toll), 🟠 national roads and 🔴 mountain passes.</div></div>
+</div>
+<script>
+// ---------- DATA (approximate network of major cities & roads; extend freely) ----------
+const C = {
+ "Tangier":[35.7595,-5.834],"Tetouan":[35.5785,-5.3684],"Chefchaouen":[35.1688,-5.2636],"Al Hoceima":[35.2517,-3.9372],
+ "Nador":[35.1681,-2.9335],"Berkane":[34.92,-2.32],"Oujda":[34.6814,-1.9086],"Figuig":[32.11,-1.23],"Taza":[34.21,-4.01],
+ "Guercif":[34.227,-3.354],"Fes":[34.0331,-5.0003],"Meknes":[33.8935,-5.5473],"Ifrane":[33.5228,-5.1106],"Azrou":[33.434,-5.221],
+ "Khenifra":[32.935,-5.668],"Midelt":[32.6852,-4.7451],"Errachidia":[31.9314,-4.4244],"Merzouga":[31.0994,-4.0129],
+ "Tinghir":[31.5147,-5.5328],"Ouarzazate":[30.9335,-6.937],"Zagora":[30.3324,-5.838],"Asilah":[35.465,-6.034],
+ "Larache":[35.1932,-6.1557],"Ksar el-Kebir":[35.0017,-5.9042],"Ouezzane":[34.796,-5.59],"Kenitra":[34.261,-6.5802],
+ "Rabat":[34.0209,-6.8416],"Casablanca":[33.5731,-7.5898],"Mohammedia":[33.6866,-7.383],"Settat":[33.001,-7.6166],
+ "Khouribga":[32.8811,-6.9063],"Beni Mellal":[32.3373,-6.3498],"Marrakech":[31.6295,-7.9811],"El Jadida":[33.2316,-8.5007],
+ "Safi":[32.2994,-9.2372],"Essaouira":[31.5085,-9.7595],"Agadir":[30.4278,-9.5981],"Taroudant":[30.4702,-8.877],
+ "Tiznit":[29.6974,-9.7316],"Sidi Ifni":[29.3797,-10.173],"Guelmim":[28.987,-10.0574],"Tan-Tan":[28.438,-11.103],
+ "Laayoune":[27.1253,-13.1625],"Smara":[26.7384,-11.6719],"Dakhla":[23.6848,-15.9579]
+};
+// type: A autoroute (toll) · N national · M mountain · D long desert/plain road
+const T = {A:{f:1.08,v:110,toll:1,col:"#00934a"},N:{f:1.2,v:70,col:"#e08a1e"},M:{f:1.45,v:45,col:"#c1272d"},D:{f:1.08,v:85,col:"#e08a1e"}};
+const TOLL_MAD_KM = 0.35; // rough average, for orientation only
+const E = `Tangier|Tetouan|N;Tangier|Asilah|A;Asilah|Larache|A;Larache|Kenitra|A;Larache|Ksar el-Kebir|N;Ksar el-Kebir|Ouezzane|N;
+Ouezzane|Chefchaouen|N;Ouezzane|Fes|N;Ouezzane|Kenitra|N;Chefchaouen|Tetouan|M;Chefchaouen|Al Hoceima|M;Kenitra|Rabat|A;
+Rabat|Casablanca|A;Casablanca|Mohammedia|A;Casablanca|Settat|A;Settat|Marrakech|A;Casablanca|El Jadida|A;El Jadida|Safi|N;
+Safi|Essaouira|N;Safi|Marrakech|N;Essaouira|Marrakech|N;Essaouira|Agadir|N;Rabat|Meknes|A;Meknes|Fes|A;Fes|Taza|A;Taza|Guercif|A;
+Guercif|Oujda|A;Oujda|Berkane|N;Berkane|Nador|N;Taza|Al Hoceima|M;Nador|Al Hoceima|N;Oujda|Figuig|D;Fes|Ifrane|N;Meknes|Ifrane|N;
+Ifrane|Azrou|N;Azrou|Khenifra|N;Azrou|Midelt|M;Khenifra|Beni Mellal|M;Midelt|Errachidia|N;Errachidia|Merzouga|D;Errachidia|Tinghir|D;
+Tinghir|Ouarzazate|N;Ouarzazate|Marrakech|M;Ouarzazate|Zagora|N;Ouarzazate|Taroudant|M;Taroudant|Agadir|N;Settat|Khouribga|N;
+Khouribga|Beni Mellal|N;Khouribga|Rabat|N;Beni Mellal|Marrakech|A;Agadir|Tiznit|N;Tiznit|Sidi Ifni|N;Tiznit|Guelmim|N;
+Sidi Ifni|Guelmim|N;Guelmim|Tan-Tan|D;Tan-Tan|Laayoune|D;Laayoune|Smara|D;Laayoune|Dakhla|D;Mohammedia|Rabat|A;
+Tangier|Asilah|N;Asilah|Larache|N;Larache|Kenitra|N;Kenitra|Rabat|N;Rabat|Mohammedia|N;Mohammedia|Casablanca|N;Casablanca|Settat|N;Settat|Marrakech|N;
+Casablanca|El Jadida|N;Rabat|Meknes|N;Meknes|Fes|N;Fes|Taza|N;Taza|Guercif|N;Guercif|Oujda|N`;
+
+// ---------- GRAPH ----------
+const hav = (a, b) => {
+  const r = Math.PI / 180, [p, q] = [C[a], C[b]];
+  const x = Math.sin((q[0] - p[0]) * r / 2) ** 2 + Math.cos(p[0] * r) * Math.cos(q[0] * r) * Math.sin((q[1] - p[1]) * r / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(x));
+};
+const adj = Object.fromEntries(Object.keys(C).map(k => [k, []]));
+E.split(";").map(s => s.trim().split("|")).forEach(([a, b, t]) => {
+  const km = hav(a, b) * T[t].f, h = km / T[t].v;
+  adj[a].push({ to: b, km, h, t }); adj[b].push({ to: a, km, h, t });
+});
+
+// ---------- SEARCH: Dijkstra with binary heap; A* = same loop + admissible haversine heuristic ----------
+class Heap {
+  constructor() { this.a = []; }
+  push(k, v) { const a = this.a; let i = a.push([k, v]) - 1; while (i && a[i][0] < a[i - 1 >> 1][0]) { [a[i], a[i - 1 >> 1]] = [a[i - 1 >> 1], a[i]]; i = i - 1 >> 1; } }
+  pop() {
+    const a = this.a, top = a[0], last = a.pop();
+    if (a.length) { a[0] = last; let i = 0; for (;;) { let m = i, l = 2 * i + 1, r = l + 1; if (l < a.length && a[l][0] < a[m][0]) m = l; if (r < a.length && a[r][0] < a[m][0]) m = r; if (m === i) break; [a[i], a[m]] = [a[m], a[i]]; i = m; } }
+    return top;
+  }
+  get size() { return this.a.length; }
+}
+function search(s, t, mode, astar) {
+  const w = e => mode === "short" ? e.km : e.h;                 // edge cost
+  const vmax = mode === "short" ? 1 : 110;                       // heuristic never overestimates
+  const h = n => astar ? hav(n, t) / vmax : 0;
+  const g = { [s]: 0 }, prev = {}, via = {}, seen = [], done = new Set(), pq = new Heap();
+  pq.push(h(s), s);
+  while (pq.size) {
+    const [, u] = pq.pop();
+    if (done.has(u)) continue;
+    done.add(u); seen.push(u);
+    if (u === t) break;
+    for (const e of adj[u]) {
+      if (mode === "free" && T[e.t].toll) continue;
+      const d = g[u] + w(e);
+      if (d < (g[e.to] ?? Infinity)) { g[e.to] = d; prev[e.to] = u; via[e.to] = e; pq.push(d + h(e.to), e.to); }
+    }
+  }
+  if (!(t in g)) return null;
+  const path = [t]; while (path[0] !== s) path.unshift(prev[path[0]]);
+  return { path, edges: path.slice(1).map(n => via[n]), seen, cost: g[t] };
+}
+
+// ---------- UI ----------
+const map = L.map("map", { zoomControl: false }).setView([31.9, -6.5], 6);
+L.control.zoom({ position: "bottomright" }).addTo(map);
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", { attribution: "Tiles © Esri — Source: Esri, HERE, Garmin, OpenStreetMap contributors", maxZoom: 18 }).addTo(map);
+const routeLayer = L.layerGroup().addTo(map), probeLayer = L.layerGroup().addTo(map);
+let stops = [], mode = "fast", token = 0;
+const $ = id => document.getElementById(id);
+const geomCache = new Map();
+
+Object.keys(C).forEach(n => {
+  $("cities").insertAdjacentHTML("beforeend", `<option value="${n}">`);
+  L.circleMarker(C[n], { radius: 6, color: "#fff", weight: 2, fillColor: "#2b1d14", fillOpacity: 1 })
+    .bindTooltip(n, { permanent: map.getZoom() > 6, direction: "right", className: "lbl" })
+    .on("click", () => add(n)).addTo(map);
+});
+function add(n) { if (stops.at(-1) !== n) { stops.push(n); update(); } }
+
+$("q").onchange = e => { const n = Object.keys(C).find(k => k.toLowerCase() === e.target.value.trim().toLowerCase()); if (n) add(n); e.target.value = ""; };
+$("clear").onclick = () => { stops = []; update(); };
+$("modes").onclick = e => { if (!e.target.dataset.m) return; mode = e.target.dataset.m; [...$("modes").children].forEach(c => c.classList.toggle("on", c === e.target)); update(); };
+$("astar").onchange = $("watch").onchange = () => update();
+
+const fmtH = h => { const m = Math.round(h * 60); return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`; };
+
+async function drawLeg(a, b, col, tok) {
+  const key = a + ">" + b;
+  const fallback = L.polyline([C[a], C[b]], { color: col, weight: 5, opacity: .9, dashArray: "2 8" }).addTo(routeLayer);
+  try {
+    if (!geomCache.has(key)) {
+      const [p, q] = [C[a], C[b]];
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${p[1]},${p[0]};${q[1]},${q[0]}?overview=full&geometries=geojson`).then(r => r.json());
+      geomCache.set(key, r.routes[0].geometry.coordinates.map(([x, y]) => [y, x]));
+    }
+    if (tok !== token) return;
+    routeLayer.removeLayer(fallback);
+    L.polyline(geomCache.get(key), { color: col, weight: 6, opacity: .95 }).addTo(routeLayer);
+  } catch { /* offline or rate-limited: keep the straight dotted leg */ }
+}
+
+function update() {
+  const tok = ++token;
+  routeLayer.clearLayers(); probeLayer.clearLayers();
+  $("stops").innerHTML = stops.map((n, i) =>
+    `<div class="stop"><b class="${i && i === stops.length - 1 ? "end" : ""}">${i + 1}</b><span>${n}</span><button onclick="stops.splice(${i},1);update()">✕</button></div>`).join("");
+  if (stops.length < 2) { $("out").innerHTML = stops.length ? "" : $("out").innerHTML; if (!stops.length) $("out").innerHTML = '<div class="hint">Pick two cities to get an itinerary. Roads are drawn with 🟢 autoroutes (toll), 🟠 national roads and 🔴 mountain passes.</div>'; return; }
+
+  let km = 0, hrs = 0, toll = 0, explored = 0, seen = [], steps = [], pts = [];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const r = search(stops[i], stops[i + 1], mode, $("astar").checked);
+    if (!r) { $("out").innerHTML = `<div class="hint">No road found ${mode === "free" ? "without toll " : ""}between ${stops[i]} and ${stops[i + 1]}.</div>`; return; }
+    explored += r.seen.length; seen.push(...r.seen);
+    r.path.forEach((n, j) => {
+      pts.push(C[n]);
+      if (j) {
+        const e = r.edges[j - 1];
+        km += e.km; hrs += e.h; if (T[e.t].toll) toll += e.km * TOLL_MAD_KM;
+        steps.push({ n, e });
+        drawLeg(r.path[j - 1], n, T[e.t].col, tok);
+      } else if (!i) steps.push({ n });
+    });
+  }
+  map.fitBounds(L.latLngBounds(pts).pad(.25));
+  $("out").innerHTML = `
+    <div class="sum"><div><b>${Math.round(km)} km</b><small>distance</small></div><div><b>${fmtH(hrs)}</b><small>drive time</small></div><div><b>${toll ? "≈" + Math.round(toll) + " MAD" : "free"}</b><small>toll</small></div></div>
+    ${steps.map(s => `<div class="step"><span>${s.n}</span>${s.e ? `<i>${Math.round(s.e.km)} km · ${{ A: "autoroute", N: "national", M: "mountain", D: "open road" }[s.e.t]}</i>` : ""}</div>`).join("")}
+    <div class="stat">Algorithm examined ${explored} of ${Object.keys(C).length * (stops.length - 1)} city-visits${$("astar").checked ? " (A* guided)" : " (plain Dijkstra)"} — toggle Turbo to compare.</div>`;
+
+  if ($("watch").checked) seen.forEach((n, i) => setTimeout(() => tok === token &&
+    L.circleMarker(C[n], { radius: 10, color: "#d99a2b", weight: 2, fillOpacity: .25, fillColor: "#d99a2b" }).addTo(probeLayer), i * 60));
+  setTimeout(() => tok === token && probeLayer.clearLayers(), seen.length * 60 + 1500);
+}
+
+// ---------- SELF-CHECK: open index.html?test — A* must equal plain Dijkstra on every pair, every mode ----------
+if (location.search.includes("test")) {
+  const ns = Object.keys(C); let bad = 0, n = 0;
+  for (const m of ["fast", "short", "free"]) for (const a of ns) for (const b of ns) {
+    const x = search(a, b, m, false), y = search(a, b, m, true); n++;
+    if ((x?.cost ?? null) === null ? y !== null : Math.abs(x.cost - y.cost) > 1e-9) bad++;
+  }
+  console.log(`self-check: ${n} pairs, ${bad} mismatches`); document.title = `check ${bad ? "FAIL" : "OK"} (${n})`;
+}
+</script>
+</body>
+</html>
